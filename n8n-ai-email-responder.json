@@ -1,0 +1,1572 @@
+{
+  "name": "n8n-ai-email-responder",
+  "nodes": [
+    {
+      "parameters": {
+        "downloadAttachments": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -2160,
+        512
+      ],
+      "id": "a2d4a5e2-49b1-4155-bfd0-8802a856642a",
+      "name": "Email Trigger (IMAP)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "68d1c2af-da2a-4b08-b8ad-96bc1655fc19",
+              "name": "client_id",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "44aa9086-a6b5-4186-a855-279da59de882",
+              "name": "email_sender",
+              "value": "={{ (() => {\n  const v = $item(\"0\").$node[\"Email Trigger (IMAP)\"].json[\"from\"] ?? '';\n\n  // 1) se vier com <...>, pega o que está entre os sinais\n  const b = /<\\s*([^>]+)\\s*>/.exec(v);\n  if (b) return b[1].trim();\n\n  // 2) senão, captura o primeiro padrão de e-mail na string\n  const m = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/.exec(v);\n  return m ? m[0] : v.trim();\n})() }}",
+              "type": "string"
+            },
+            {
+              "id": "cce2670b-3afa-4426-be46-258ecf422f5d",
+              "name": "subject",
+              "value": "={{ $item(\"0\").$node[\"Email Trigger (IMAP)\"].json[\"subject\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "9ae7fc7b-1ec2-4fd5-a819-285e18c1b968",
+              "name": "email_reciever",
+              "value": "={{ (() => {\n  const v = $item(\"0\").$node[\"Email Trigger (IMAP)\"].json[\"to\"] ?? '';\n\n  // 1) se vier com <...>, pega o que está entre os sinais\n  const b = /<\\s*([^>]+)\\s*>/.exec(v);\n  if (b) return b[1].trim();\n\n  // 2) senão, captura o primeiro padrão de e-mail na string\n  const m = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/.exec(v);\n  return m ? m[0] : v.trim();\n})() }}\n\n",
+              "type": "string"
+            },
+            {
+              "id": "1f629b68-550f-47ec-bb41-404a89f53d84",
+              "name": "body_html",
+              "value": "={{ $json.textHtml }}",
+              "type": "string"
+            },
+            {
+              "id": "154913a8-a15c-4a9c-8c11-7962e657fe09",
+              "name": "body_text",
+              "value": "={{ $json.textPlain }}",
+              "type": "string"
+            },
+            {
+              "id": "0245f51e-ba2b-43c9-8d36-8f8f8f3a22ac",
+              "name": "name",
+              "value": "={{ \n  (() => {\n    const from = $json.from || ''\n    // Tenta capturar o nome antes do <email>\n    const m = /\"?(.*?)\"?\\s*<[^>]+>/.exec(from)\n    if (m) return m[1].trim()\n    // Se não tiver <...>, tenta pegar tudo antes de um e-mail no texto\n    const before = from.split('<')[0].trim().replace(/^\"|\"$/g,'')\n    if (before) return before\n    // Se for só e-mail, devolve o local-part (antes do @) como “nome” básico\n    const email = /<?([^<>\\s]+@[^<>\\s]+)>?/.exec(from)?.[1]\n    if (email) return email.split('@')[0]\n    return from.trim()\n  })() \n}}\n",
+              "type": "string"
+            },
+            {
+              "id": "34cfed25-3fff-4dbb-8eff-edd0c84c0068",
+              "name": "SDR_FLAG",
+              "value": "={{    [     'true','1','yes','y','on','sim','s','b2b'   ].includes(String($json.SDR_ATENDIMENTO || '').trim().toLowerCase()) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1600,
+        528
+      ],
+      "id": "c968f652-6a73-4157-9f7f-970fbabe2e06",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "Clients",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "client_id",
+              "keyValue": "={{ $json.client_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        528
+      ],
+      "id": "6be947cf-31b0-407e-a6e0-ebf0450ee4ac",
+      "name": "Get a row"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Entradas>\nOBJETIVO_DO_PROMPT: Gerar uma resposta de SDR (pré-venda) clara, curta e objetiva, em PT-BR, que qualifique o lead e proponha o próximo passo (agenda/diagnóstico), mantendo tom cordial e profissional.\nPROMPT_INCOMPLETO: |\n  DADOS DO EMAIL\n  - Remetente (nome): {{ $('Edit Fields').item.json.name || '' }}\n  - Remetente (email): {{ $('Edit Fields').item.json.email_sender }}\n  - Assunto: {{ $('Edit Fields').item.json.subject || '—' }}\n  - Corpo (texto): {{ $json.body_text || '' }}\n  - Corpo (html se texto vazio): {{ $json.body_html || '' }}\n\n  CONTEXTO DO NEGÓCIO\n  - Empresa: Fiumari AI (automação e IA aplicada a funil/SDR/atendimento).\n  - Objetivo: entender dor, qualificar (FIT, orçamento, timing, interesse) e ofertar próximo passo.\n\n  INSTRUÇÕES ESPECÍFICAS\n  - Responda como SDR, com 3–7 linhas.\n  - Faça 2–3 perguntas de qualificação (problema atual, volume de leads, ferramenta).\n  - Sugira call de 15 min com 2 horários alternativos (manhã/tarde).\n  - Se o texto do usuário estiver vazio/curto, peça mais contexto com educação.\n  - Não invente preços. Se perguntarem preço, diga que varia por escopo e confirme breve diagnóstico.\n</Entradas>\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "369a62a2-23fa-4b6b-8f0e-28f2270be44c",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        176
+      ],
+      "id": "43c05153-0576-453e-bfcc-5d10c389c722",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -48,
+        496
+      ],
+      "id": "8c3a3efa-5a76-42e2-a0f7-75f5fbbec4fc",
+      "name": "OpenAI Chat Model1"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "toEmail": "={{ $('Edit Fields').item.json.email_sender }}",
+        "subject": "={{ $json.subject || $json.email_subject || 'Seu contato' }}",
+        "message": "={{$json.output || $json.message || $json.text}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        544,
+        160
+      ],
+      "id": "14be453d-27ce-4e9c-a7fa-a51cedb23d22",
+      "name": "Send email",
+      "webhookId": "2c79ff9c-b012-494c-9527-cb8ad9e7aa6f"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+                    "rightValue": "={{ $json.contact_email }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    },
+                    "id": "14fabaa6-d4b9-43ef-a081-fc3f6c77b535"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1e09e488-0fc1-461f-a90f-acdd80601605",
+                    "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+                    "rightValue": "={{ $json.cs_email }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Telegram"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        352,
+        176
+      ],
+      "id": "e0f4e0ea-e6cf-4d42-a952-038aeb91e653",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+                    "rightValue": "={{ $json.contact_email }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    },
+                    "id": "14fabaa6-d4b9-43ef-a081-fc3f6c77b535"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Contato"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1e09e488-0fc1-461f-a90f-acdd80601605",
+                    "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+                    "rightValue": "={{ $json.cs_email }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Atendimento ao Cliente"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -352,
+        816
+      ],
+      "id": "b7a784c3-6557-47d8-9c6f-5bbc2133ca12",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Entradas>\nOBJETIVO_DO_PROMPT: Criar resposta comercial (SDR) curta em PT-BR para leads inbound, validando interesse, escopo e urgência, e propondo call de diagnóstico.\nPROMPT_INCOMPLETO: |\n  DADOS DO EMAIL\n  - Nome: {{ $('Edit Fields').item.json.name || '' }}\n  - Email: {{ $('Edit Fields').item.json.email_sender }}\n  - Assunto: {{ $('Edit Fields').item.json.subject || '—' }}\n  - Texto: {{ $json.body_text || $json.body_html || '' }}\n\n  DIRETRIZES\n  - 2–3 perguntas de qualificação (escopo, canais, volume de leads).\n  - Proponha 2 janelas de horário (ex.: amanhã 10:00–12:00 ou 14:00–16:00).\n  - Se mencionar preço, responda que depende do pacote e confirme diagnóstico.\n  - Feche com CTA de confirmação de horário.\n</Entradas>\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        656
+      ],
+      "id": "81c98452-03f8-4ac3-a7ca-d7cbfda7dcf6",
+      "name": "AI Agent2"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -64,
+        816
+      ],
+      "id": "152fb9de-9f68-4ca7-af01-fcf3779de1f7",
+      "name": "OpenAI Chat Model2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Entradas>\nOBJETIVO_DO_PROMPT: Gerar resposta de suporte objetiva em PT-BR, pedindo infos reproduzíveis e incluindo mini check-list antes de escalar.\nPROMPT_INCOMPLETO: |\n  DADOS DO EMAIL\n  - Nome: {{ $('Edit Fields').item.json.name || '' }}\n  - Email: {{ $('Edit Fields').item.json.email_sender }}\n  - Assunto: {{ $('Edit Fields').item.json.subject || '—' }}\n  - Texto: {{ $json.body_text || $json.body_html || '' }}\n\n  DIRETRIZES\n  - 3–5 itens de diagnóstico (passo-a-passo).\n  - Se envolver integração externa (n8n/Supabase/Instagram), peça IDs/timestamps.\n  - Se não houver dados suficientes, peça prints e passos exatos.\n  - Final: “Abrimos ticket #{{ $now }}; responda com os itens acima para agilizar.”\n</Entradas>\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        992
+      ],
+      "id": "0c8050c6-30e4-45ef-b5db-526d46003c7c",
+      "name": "AI Agent3"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -64,
+        1168
+      ],
+      "id": "f86ea2eb-d61b-4a76-9438-a44dfb6ac402",
+      "name": "OpenAI Chat Model3"
+    },
+    {
+      "parameters": {
+        "tableId": "Leads",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email",
+              "fieldValue": "={{ $('Edit Fields').item.json.email_sender }}"
+            },
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('Edit Fields').item.json.name }}"
+            },
+            {
+              "fieldId": "origin",
+              "fieldValue": "Email"
+            },
+            {
+              "fieldId": "resume",
+              "fieldValue": "={{ $('Edit Fields').item.json.subject }}"
+            },
+            {
+              "fieldId": "last_contact",
+              "fieldValue": "={{ $now }}\n"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        608
+      ],
+      "id": "75a141b3-a459-4436-80cf-870cbdd08a16",
+      "name": "Create a row"
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -912,
+        608
+      ],
+      "id": "091f8a01-d5a5-4166-a2e2-4a76e0b7ce15",
+      "name": "Wait",
+      "webhookId": "cc241f8d-567e-4b9a-b7d8-a0b24a2a8f47"
+    },
+    {
+      "parameters": {
+        "operation": "push",
+        "list": "lead_analisis",
+        "messageData": "={{ $json.email }}"
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -896,
+        384
+      ],
+      "id": "3c84b2a4-0345-4493-8b64-a78cf0173784",
+      "name": "Redis3"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "Leads",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }} "
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "last_contact",
+              "fieldValue": "={{ $now }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        448
+      ],
+      "id": "26780d0d-0a3f-467c-ba36-822bcf8e6869",
+      "name": "Update a row"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cbd6b98f-84eb-4601-ae64-04d187fe6463",
+              "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+              "rightValue": "={{ $json.email }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1216,
+        512
+      ],
+      "id": "011717ff-d2d4-496e-ab1c-15e58b0c482e",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4917fa76-2605-4a6b-93ce-bb8e8bd9dc2a",
+              "leftValue": "={{ ($json.market_type ?? '').toString().toLowerCase() === 'b2b' \n   && ($json.confidence ?? 1) >= 0.6 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -768,
+        512
+      ],
+      "id": "70b41445-d168-4ccd-99b9-e0b55d2c0539",
+      "name": "B2B ou B2C"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+                    "rightValue": "={{ $json.contact_email }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    },
+                    "id": "14fabaa6-d4b9-43ef-a081-fc3f6c77b535"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Contato"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1e09e488-0fc1-461f-a90f-acdd80601605",
+                    "leftValue": "={{ $('Edit Fields').item.json.email_sender }}",
+                    "rightValue": "={{ $json.cs_email }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Atendimento ao Cliente"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -352,
+        160
+      ],
+      "id": "08203dd2-b0a3-4d69-99f4-95c4dc9cb30d",
+      "name": "Qual email chegou?"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Entradas>\nOBJETIVO_DO_PROMPT: Gerar uma resposta de suporte em PT-BR, empática e objetiva, pedindo os dados mínimos para diagnóstico e oferecendo um próximo passo claro (passo-a-passo ou abertura de ticket).\nPROMPT_INCOMPLETO: |\n  DADOS DO EMAIL\n  - Remetente (nome): {{ $('Edit Fields').item.json.name || '' }}\n  - Remetente (email): {{ $('Edit Fields').item.json.email_sender }}\n  - Assunto: {{ $('Edit Fields').item.json.subject || '—' }}\n  - Corpo (texto): {{ $json.body_text || '' }}\n  - Corpo (html se texto vazio): {{ $json.body_html || '' }}\n\n  CONTEXTO DO NEGÓCIO\n  - Empresa: Fiumari AI (produtos/automação + suporte).\n  - Objetivo: acolher, entender o problema e coletar informações mínimas (erro exibido, passo reproduzível, prints, horário, navegador/versão).\n\n  INSTRUÇÕES ESPECÍFICAS\n  - Tom: cordial, direto, 3–6 linhas.\n  - Liste 3–5 itens de checagem (ex.: limpar cache, refazer login, verificar permissão).\n  - Se houver urgência explícita, ofereça escalar para atendimento prioritário.\n  - Inclua referência de ticket no final: “Ticket: {{ $now }}”.\n</Entradas>\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        320
+      ],
+      "id": "03c5ee3c-7076-4531-a4bd-349c1f018d42",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "toEmail": "={{ $('Edit Fields').item.json.email_sender }}",
+        "subject": "={{ $json.subject ? `Re: ${$json.subject}` : 'Resposta ' }}",
+        "emailFormat": "both",
+        "text": "={{$json.reply_text}}",
+        "html": "={{$json.reply_html}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1024,
+        160
+      ],
+      "id": "9def2944-2825-4136-aeab-74540f32011a",
+      "name": "Send email2",
+      "webhookId": "85cc157b-bea6-48d6-9aa7-dd0a69909e9a"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "Leads",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ $('Edit Fields').item.json.email_sender }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1344,
+        512
+      ],
+      "id": "df53536e-68da-40a9-9d81-c5fd694060f7",
+      "name": "Get a row1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<!DOCTYPE html>\n<html lang=\"pt-BR\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Lembrete de Reunião</title>\n</head>\n<body style=\"font-family: Arial, sans-serif; background-color: #ffffff; color: #333; margin:0; padding:0;\">\n  <table width=\"100%\" border=\"0\" cellspacing=\"0\" cellpadding=\"0\">\n    <tr>\n      <td align=\"center\" style=\"background-color:#000000; padding:20px;\">\n        <h1 style=\"color:#ffffff; margin:0;\">Fiumari AI</h1>\n      </td>\n    </tr>\n    <tr>\n      <td style=\"padding:30px;\">\n        <p>Olá <strong>{{ $('Edit Fields').item.json.name }}</strong>,</p>\n        <p>Este é apenas um lembrete rápido: nossa reunião começa em breve, às:</p>\n        <p style=\"font-size:16px; font-weight:bold;\">📅 Quarta-feira, 27 de agosto de 2025<br>\n        ⏰ 16h00 – (Horário de Brasília)</p>\n        \n        <p>Você pode acessar diretamente pelo link abaixo:</p>\n        \n        <p style=\"text-align:center; margin:30px 0;\">\n          <a href=\"https://meet.google.com/kwo-yxmb-dfe\" target=\"_blank\" \n             style=\"background-color:#000000; color:#ffffff; text-decoration:none; \n             padding:12px 25px; border-radius:6px; font-weight:bold; display:inline-block;\">\n            👉 Entrar na Reunião\n          </a>\n        </p>\n        \n        <p>Qualquer imprevisto ou dúvida, estou à disposição.<br>\n        Nos vemos em breve!</p>\n        \n        <p>Abraço,<br>\n        Felipe – Fiumari AI</p>\n      </td>\n    </tr>\n    <tr>\n      <td align=\"center\" style=\"background-color:#f5f5f5; padding:15px; font-size:12px; color:#666;\">\n        © 2025 Fiumari AI. Todos os direitos reservados.\n      </td>\n    </tr>\n  </table>\n</body>\n</html>",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        704,
+        160
+      ],
+      "id": "79c7c0eb-3ee2-43fc-a560-a58df06bd69b",
+      "name": "FORMATAÇAO"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        624,
+        352
+      ],
+      "id": "92be229e-d3f7-4e45-bb5c-d1ff0c37168c",
+      "name": "OpenAI Chat Model4"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        784,
+        352
+      ],
+      "id": "2579ec46-74c8-4ac8-9746-2bb6612e3407",
+      "name": "Postgres Chat Memory"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$('Edit Fields').item.json.email_sender}}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        80,
+        816
+      ],
+      "id": "5b62e4a3-2d32-4073-8c5a-344b44f915c5",
+      "name": "Postgres Chat Memory1"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        96,
+        176
+      ],
+      "id": "522489df-6f3b-4038-9e60-b0727fae8e4e",
+      "name": "Postgres Chat Memory2"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        80,
+        496
+      ],
+      "id": "7cc7bcc8-0b85-4947-9c23-174265776f91",
+      "name": "Postgres Chat Memory3"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        80,
+        1168
+      ],
+      "id": "5648b8f2-d346-41bb-9649-2b51ab570660",
+      "name": "Postgres Chat Memory4"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$('Edit Fields').item.json.email_sender}}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        1296,
+        960
+      ],
+      "id": "5e42eeb1-4427-47da-9355-a9d249693532",
+      "name": "Postgres Chat Memory5"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1136,
+        960
+      ],
+      "id": "f8cae978-e73a-470f-9b5c-e893e9421528",
+      "name": "OpenAI Chat Model5"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<!DOCTYPE html>\n<html lang=\"pt-BR\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Meeting Reminder</title>\n</head>\n<body style=\"font-family: Arial, sans-serif; background-color:#ffffff; color:#333; margin:0; padding:0;\">\n  <table width=\"100%\" border=\"0\" cellspacing=\"0\" cellpadding=\"0\">\n    \n    <!-- Header -->\n    <tr>\n      <td align=\"center\" style=\"background-color:#000000; padding:20px;\">\n        <h1 style=\"color:#ffffff; margin:0;\">Company Name</h1>\n      </td>\n    </tr>\n\n    <!-- Content -->\n    <tr>\n      <td style=\"padding:30px;\">\n        <p>Olá <strong>{{ recipient_name }}</strong>,</p>\n\n        <p>Este é um lembrete rápido: nossa reunião está prestes a começar.</p>\n\n        <p style=\"font-size:16px; font-weight:bold;\">\n          📅 {{ meeting_date }}<br>\n          ⏰ {{ meeting_time }} (Horário local)\n        </p>\n\n        <p>Você pode acessar a reunião pelo link abaixo:</p>\n\n        <p style=\"text-align:center; margin:30px 0;\">\n          <a href=\"{{ meeting_link }}\" target=\"_blank\"\n             style=\"background-color:#000000; color:#ffffff; text-decoration:none;\n                    padding:12px 25px; border-radius:6px; font-weight:bold; display:inline-block;\">\n            👉 Entrar na Reunião\n          </a>\n        </p>\n\n        <p>\n          Caso tenha algum imprevisto ou dúvida, fique à vontade para responder este e-mail.\n        </p>\n\n        <p>\n          Atenciosamente,<br>\n          {{ sender_name }}<br>\n          {{ company_name }}\n        </p>\n      </td>\n    </tr>\n\n    <!-- Footer -->\n    <tr>\n      <td align=\"center\" style=\"background-color:#f5f5f5; padding:15px; font-size:12px; color:#666;\">\n        © {{ current_year }} {{ company_name }}. All rights reserved.\n      </td>\n    </tr>\n\n  </table>\n</body>\n</html>\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1072,
+        768
+      ],
+      "id": "47f8bf5c-1008-46b4-ac51-6d44f335f717",
+      "name": "FORMATAÇAO1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ true }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    },
+                    "id": "14fabaa6-d4b9-43ef-a081-fc3f6c77b535"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Email"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        288,
+        800
+      ],
+      "id": "ee1f8a87-920e-4135-a42f-b123ed8a9dae",
+      "name": "Switch3"
+    },
+    {
+      "parameters": {
+        "toEmail": "={{ $('Edit Fields').item.json.email_sender ?? $json.email_sender ?? $json.from_email }}\n",
+        "subject": "={{ $json.subject ? `Re: ${$json.subject}` : 'Resposta ' }}",
+        "emailFormat": "both",
+        "text": "={{$json.reply_text || $json.output || 'Prévia indisponível.'}}\n",
+        "html": "={{$json.reply_html || $json.output || 'Prévia indisponível.'}}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1408,
+        768
+      ],
+      "id": "26b15d52-4086-405f-92b7-96212caee35b",
+      "name": "Send email1",
+      "webhookId": "2c79ff9c-b012-494c-9527-cb8ad9e7aa6f"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "fromEmail": "felipe@fiumariai.com",
+        "subject": "={{ $json.subject ? 'Aprovar: ' + $json.subject : 'Aprovar resposta' }}",
+        "message": "={{ $json.reply_text || $json.output || 'Prévia indisponível.' }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        800
+      ],
+      "id": "e93886b0-099c-4af2-9b53-401e91355388",
+      "name": "SendAndWait email",
+      "webhookId": "dcb08491-9a8f-48be-b3c0-869a92cbd043"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "=email:processing:{{$json.messageId || $json[\"Message-ID\"] || $json.attributes.uid }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -2032,
+        512
+      ],
+      "id": "78035475-36f9-4276-8161-e800b43f10a8",
+      "name": "Redis"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4b2592eb-09b4-417b-93a0-8377a3366479",
+              "leftValue": "={{ $json.propertyName }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1904,
+        512
+      ],
+      "id": "0ab6d56e-d6d4-44ae-8b1b-851e07fd9552",
+      "name": "If1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        720
+      ],
+      "id": "0ced31b9-a43b-4704-a809-bcb3d275ee48",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.aprovado }}",
+                    "rightValue": "=true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "8c77f512-d4b3-4d2f-845d-a83d168833cf"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "APROVADO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "85768373-5803-43e8-9a9e-54ee3b1413b6",
+                    "leftValue": "={{ $json.aprovado }}\n",
+                    "rightValue": "=true",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REJEITADO"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        816,
+        800
+      ],
+      "id": "88f68e15-6764-4bb8-a407-d9f7a80935f3",
+      "name": "Switch"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        960,
+        960
+      ],
+      "id": "21e68f74-0132-4cf5-988b-f562ccf5ef6d",
+      "name": "No Operation, do nothing1"
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=email:processing:{{$json.messageId || $json[\"Message-ID\"] || $json.uid}}",
+        "value": "=true ",
+        "expire": true,
+        "ttl": 600
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        528
+      ],
+      "id": "338676f8-03cb-4500-ae4b-02dc3c0a5a9d",
+      "name": "Redis1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4b3c2976-addb-4288-8c8f-59513dfb6429",
+              "name": "aprovado",
+              "value": "=approved: {{ $json.data.approved }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        656,
+        800
+      ],
+      "id": "2f5f1dd1-3a6f-4681-b13f-d5970964ac5e",
+      "name": "Edit Fields1"
+    }
+  ],
+  "pinData": {
+    "Email Trigger (IMAP)": [
+      {
+        "json": {
+          "textHtml": "\r\n<!DOCTYPE html>\r\n<html lang='en'>\r\n\r\n<head>\r\n\t<meta charset=\"UTF-8\">\r\n\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\r\n\t<title>My form</title>\r\n</head>\r\n\r\n<body\r\n\tstyle=\"font-family: Arial, sans-serif; font-size: 12px; background-color: #fbfcfe; margin: 0; padding: 0;\">\r\n\t<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"\r\n\t\tstyle=\"background-color:#fbfcfe; border: 1px solid #dbdfe7; border-radius: 8px;\">\r\n\t\t<tr>\r\n\t\t\t<td align=\"center\" style=\"padding: 24px 0;\">\r\n\t\t\t\t<table width=\"448\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\r\n\t\t\t\t\tstyle=\"width: 100%; max-width: 448px; background-color: #ffffff; border: 1px solid #dbdfe7; border-radius: 8px; padding: 24px; box-shadow: 0px 4px 16px rgba(99, 77, 255, 0.06);\">\r\n\t\t\t\t\t<tr>\r\n\t\t\t\t\t\t<td\r\n\t\t\t\t\t\t\tstyle=\"text-align: center; padding-top: 8px; font-family: Arial, sans-serif; font-size: 14px; color: #7e8186;\">\r\n\t\t\t\t\t\t\t<p style=\"white-space: pre-line;\">OlÃ¡!\r\n\r\nObrigado pelo seu contato. Para entendermos melhor suas necessidades, poderia compartilhar qual o escopo do projeto, quais canais pretende utilizar e o volume estimado de leads?\r\n\r\nTenho disponibilidade para uma call de diagnÃ³stico amanhÃ£, das 10h Ã s 12h ou das 14h Ã s 16h. Sobre preÃ§os, eles variam conforme o pacote, por isso o diagnÃ³stico Ã© essencial para definirmos a melhor soluÃ§Ã£o.\r\n\r\nPor favor, confirme o horÃ¡rio que for mais conveniente para vocÃª.\r\n\r\nFiumari AI â Equipe Comercial</p>\r\n\t\t\t\t\t\t</td>\r\n\t\t\t\t\t</tr>\r\n\t\t\t\t\t<tr>\r\n\t\t\t\t\t\t<td align=\"center\" style=\"padding-top: 12px;\">\r\n\t\t\t\t\t\t\t\t<a href=\"https://n8n.fiumariai.com/webhook-waiting/1624/d15d9d9f-7fba-4c9b-b3f0-ba8e5bfa0480?approved=true&signature=513072c217bf01843902683627d25dccb8365cb51e4fa24fdd7f8aa0b8124a3f\" target=\"_blank\" style=\"display:inline-block; text-decoration:none; background-color:#ff6d5a; color: #fff; padding:12px 24px; font-family: Arial,sans-serif; font-size:14px;font-weight:600; border-radius:6px; min-width:120px; margin: 12px 2px 0 2px;\">Approve</a>\r\n\t\t\t\t\t\t</td>\r\n\t\t\t\t\t</tr>\r\n\t\t\t\t</table>\r\n\r\n\t\t\t\t<!-- Divider -->\r\n\t\t\t\t<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin-bottom: 24px;\">\r\n\t\t\t\t\t<tr>\r\n\t\t\t\t\t\t<td style=\"border-top: 0px solid #dbdfe7;\"></td>\r\n\t\t\t\t\t</tr>\r\n\t\t\t\t</table>\r\n\r\n\t\t\t\t<!-- Footer -->\r\n\t\t\t\t<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\r\n\t\t\t\t\tstyle=\"text-align: center; color: #7e8186; font-family: Arial, sans-serif; font-size: 12px;\">\r\n\t\t\t\t\t<tr>\r\n\t\t\t\t\t\t<td>\r\n\t\t\t\t\t\t\t<a href=https://n8n.io/?utm_source=n8n-internal&utm_medium=send-and-wait&utm_campaign=35bcfd23c54edb51383e56644f920dc3873f3bdb7d38d3da2c63b4a8cf5d6f38\r\n\t\t\t\t\t\t\t\ttarget=\"_blank\" style=\"color: #7e8186; text-decoration: none;\">Automated with\r\n\t\t\t\t\t\t\t\tn8n</a>\r\n\t\t\t\t\t\t</td>\r\n\t\t\t\t\t</tr>\r\n\t\t\t\t</table>\r\n\t\t\t</td>\r\n\t\t</tr>\r\n\t</table>\r\n</body>\r\n\r\n</html>\r\n\t\r\n",
+          "textPlain": "",
+          "metadata": {
+            "return-path": "<felipe@fiumariai.com>",
+            "delivered-to": "felipe@fiumariai.com",
+            "received": "from fr-int-smtpout22.hostinger.io (fr-int-smtpout22.hostinger.io [IPv6:2a02:4780:5a:c0de::27])\tby de-fra-smtpin10.hostinger.io (mx.hostinger.com) with ESMTPS id 4d5dDN4wgQz3xFh\tfor <felipe@fiumariai.com>; Tue, 11 Nov 2025 20:19:32 +0000 (UTC)",
+            "arc-message-signature": "i=1; a=rsa-sha256; c=relaxed/relaxed; d=fiumariai.com;\ts=hostingermail-a; t=1762892372;\th=from:from:reply-to:subject:subject:date:date:message-id:message-id:\t to:to:cc:mime-version:mime-version:content-type:content-type:\t content-transfer-encoding:content-transfer-encoding:dkim-signature;\tbh=uUiCD+pQRbtk9PeO/Mo+44G4plNe2lXm1yAJJOzT7oU=;\tb=sb4pr2HdNsdbe1Cd/gRUIz9k4Ex+XNSksYZxlf/JnhNckYvCdBMxAQkweycG9Gb7Xfg7B0\tkW2LBDGEEDCBTlKEitYwC7Q0W+nrg3Pr2RCfj/SkrACQcn0BenVI+RbBgYKlQ2TgX9IPp5\tbfTVoS0FYLF48zkMRzH5W2qirRYgGLJffFwTfOjinzq4bK9xzrCY19gt2RNZXTrxJMkusJ\tmLEvAMSRYeIg8r8mJm2ayOSR55oJD95aYO+rwtDhPA70e9RQAmbqoKkkOWSw5QeTdqSgSG\ttUg16Ra+rBfOE+0C4SrwJF92B65Yoy8faT1B0sWwt/avwf1v0E/790hfERyrQQ==",
+            "arc-seal": "i=1; s=hostingermail-a; d=fiumariai.com; t=1762892372; a=rsa-sha256;\tcv=none;\tb=CeGjeOaKcJOk5WYkTIgR7n+glw2qR74qP/rcybHvSV6AO6ZuVYzYiGTXs1H3AES8MkmVwy\tIc3DRIEBpWlWXandu+mdcoVptT3+b8jK+hUDEqkOX7WvgRZEjHWDgE6n+73DbvLtrrTAeC\tFC+phsVA8DRC4jEzwcSNhlXqiAuP+CAvJ6VuCHaNV73o+fGyIbK0bzIn/f9ugFZqlhKFzE\t3BS8hs0D7lVNzjcF8KVYbYV+UR20IG+4AG5ii7ALf/2zWoCdLOJb+E3vgIocQ8IpegFvJm\tF8p79Oydhuhg/fbVqOWDXcyFceD4y4h2/nH3y8zooqfz77wumQcoHbkq0Kw2gw==",
+            "arc-authentication-results": "i=1;\tde-fra-smtpin10.hostinger.io;\tdkim=pass header.d=fiumariai.com header.s=hostingermail-a header.b=Sxe2PRBh",
+            "dkim-signature": "v=1; a=rsa-sha256; c=relaxed/relaxed; d=fiumariai.com;\ts=hostingermail-a; t=1762892372;\th=from:from:reply-to:subject:subject:date:date:message-id:message-id:\t to:to:cc:mime-version:mime-version:content-type:content-type:\t content-transfer-encoding:content-transfer-encoding;\tbh=uUiCD+pQRbtk9PeO/Mo+44G4plNe2lXm1yAJJOzT7oU=;\tb=Sxe2PRBhizayoBbhVKds9pxLWz8zpVccM2AhzZul/isyNw8gwIKpvRcGMcgyg9SaL4oI6V\t1ixSreS/LjhIWyY/udgBSCsKm3cA6sHwLyDm9F5I5Z8qvzCYjfjzrcnbJdDzAgzkIRqCVW\tuUsZ/OwElLVD//Z2fZELE+QfvQzZ/F4g4hJ9iorKZKl17L+VcoPq85pjPVOTKFV8Be+ZS8\t0GsiwjRM5opCC7fmHV9CfUJH58k2klDyNVup8nu4+JHBG2mHaG43XY3ZEgC/PCF99sGgTd\t54GJyim3PFMKbK0R47mYSOm3FGmgdtnXB9kD0koJ2p/Ie0pGEeb24fqlfMPZxw==",
+            "message-id": "<c0f96364-0492-5828-95ec-2de6f8b33b13@fiumariai.com>",
+            "content-transfer-encoding": "quoted-printable",
+            "mime-version": "1.0",
+            "content-type": "text/html; charset=utf-8",
+            "x-cm-envelope": "MS4xfNIN/Rc89AlGPm1xC5kL4KrEwKYOPrVc8yVsqFMFA7CXNjRVeX0aaazH1/z2MiVDq7Qc/ucVRU4i1cm/Td05owsgBXvvjoar51VhMBF0rzSYz4WS+g+d LznAjnVdH8NLb+mQ7tJnfZgHvrCmPncIOHiE605rIhFUoc47250uyVFcKjtSYykmhWRNvPQYCgunLQ==",
+            "x-cm-analysis": "v=2.4 cv=NuiDcNdJ c=1 sm=1 tr=0 ts=69139a54 a=oyrM2/emEgtky6JO4BTlGg==:117 a=oyrM2/emEgtky6JO4BTlGg==:17 a=IkcTkHD0fZMA:10 a=5KLPUuaC_9wA:10 a=jWZLGmnlAAAA:8 a=4DS-fGw8AAAA:8 a=xejLjHpD0YxCN2KwdOEA:9 a=2hoXYkwEPDymy6xv:21 a=_W_S_7VecoQA:10 a=QEXdDO2ut3YA:10 a=zRBFa4MmRju4XuZyvXJx:22 a=U7XU7sfUeG8DABB65HkU:22"
+          },
+          "attributes": {
+            "uid": 891
+          },
+          "from": "felipe@fiumariai.com",
+          "to": "felipe@fiumariai.com",
+          "subject": "Aprovar resposta — Fiumari AI",
+          "date": "Tue, 11 Nov 2025 20:19:31 +0000 (UTC)"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Redis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a row": {
+      "main": [
+        [
+          {
+            "node": "Get a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Get a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent2": {
+      "main": [
+        [
+          {
+            "node": "Switch3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent3": {
+      "main": [
+        [
+          {
+            "node": "Switch3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Redis3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis3": {
+      "main": [
+        [
+          {
+            "node": "B2B ou B2C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B2B ou B2C": {
+      "main": [
+        [
+          {
+            "node": "Qual email chegou?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qual email chegou?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "FORMATAÇAO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a row1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FORMATAÇAO": {
+      "main": [
+        [
+          {
+            "node": "Send email2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "FORMATAÇAO",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "FORMATAÇAO",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory2": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory3": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory4": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory5": {
+      "ai_memory": [
+        [
+          {
+            "node": "FORMATAÇAO1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "FORMATAÇAO1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FORMATAÇAO1": {
+      "main": [
+        [
+          {
+            "node": "Send email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch3": {
+      "main": [
+        [
+          {
+            "node": "SendAndWait email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Redis1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SendAndWait email": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "FORMATAÇAO1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "3b30ce8d-eb9d-4036-b8a1-51a93bb527db",
+  "meta": {
+    "instanceId": "eefefd12e998362fa77bf7a80c15d026ba82d92c6202170c6196a9f291030f96"
+  },
+  "id": "RxYeIX-KdzhN0xShYQZhB",
+  "tags": []
+}
